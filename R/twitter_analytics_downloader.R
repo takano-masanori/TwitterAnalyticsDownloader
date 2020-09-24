@@ -7,6 +7,7 @@
 #' @param password String specifying the password of the Twitter account.
 #' @param start_date String specifying the start date of the period to download in format "\%Y-\%m-\%d".
 #' @param end_date String specifying the end date of the period to download in format "\%Y-\%m-\%d".
+#' @param chromever String specifying a Chrome version.
 #' @param download_directory String specifying the directory where the downloaded files will be saved. Current directory is set by default.
 #'
 #' @details
@@ -20,32 +21,36 @@
 #'
 #' @examples
 #' \dontrun{
-#' twitter_analytics_downloader("username", "password", "2018-01-01", "2018-04-01", "C:/Users/ABCD/Downloads")}
-twitter_analytics_downloader <- function(username, password, start_date, end_date, download_directory=getwd()){
+#' twitter_analytics_downloader("username", "password", "2018-01-01", "2018-04-01", "",  "C:/Users/ABCD/Downloads")}
+twitter_analytics_downloader <- function(username, password, start_date, end_date, chromever="latest", download_directory=getwd()){
   ### Twitter Analytics report downloader using Selenium browser interaction
   require(RSelenium)
   ## Start a selenium server and a chrome browser
-  open_browser(download_directory)
+  open_browser(download_directory, chromever)
   ## Navigate to tweets tab of Twitter Analytics (require login)
-  navigate_to_analytics_twitter(username)
+  navigate_to_analytics_twitter( username)
   login(username, password)
   ## Download report/s (for a period longer than 91 days, it splits the
   ## download into several downloads)
   # Compute date ranges of 91 days
-  date_ranges <- split_date_range(start_date, end_date)
-  # For each batch, select dates and export data
-  for(dates in date_ranges){
-    # Select date range in calendar
-    select_date_range(dates[1], dates[2])
-    # Export data
-    export_data()
+  if(is.na(start_date)){
+    export_data(remDr)
+  }else{
+    date_ranges <- split_date_range(start_date, end_date)
+    # For each batch, select dates and export data
+    for(dates in date_ranges){
+      # Select date range in calendar
+      select_date_range(dates[1], dates[2])
+      # Export data
+      export_data()
+    }
   }
   ## Close browser
   remDr$close()
 }
 
 # ------------------------------------------------------------------
-open_browser <- function(download_directory){
+open_browser <- function(download_directory, chromever){
   ### Open a Chrome browser
   ## Choose Chrome options (e.g., download directory)
   eCaps <- list(
@@ -58,7 +63,8 @@ open_browser <- function(download_directory){
       )
   )
   ## Initialize a Chrome browser with the chosen options
-  rD <<- rsDriver(extraCapabilities = eCaps)
+  ## ※ ここのグローバル変数化を避けるのはちょっと手間なので一旦このまま（素朴にやるとうまく行かない）
+  rD <<- rsDriver(extraCapabilities = eCaps, browser="chrome", chromever=chromever)
   remDr <<- rD$client
 }
 
@@ -66,19 +72,20 @@ open_browser <- function(download_directory){
 navigate_to_analytics_twitter <- function(username){
   ### Navigate to the tweets tab of Twitter Analytics
   remDr$navigate(paste0("https://analytics.twitter.com/user/",username,"/tweets"))
+  Sys.sleep(2)
 }
 
 # ------------------------------------------------------------------
 login <- function(username_or_email, password){
   ### Login on Twitter
   ## Populate username or email field
-  webElem <- remDr$findElement("xpath","//input[@class='js-username-field email-input js-initial-focus']")
+  webElem <- remDr$findElement("name", "session[username_or_email]")
   webElem$sendKeysToElement(list(username_or_email))
   ## Populate password field
-  webElem <- remDr$findElement("xpath","//input[@class='js-password-field']")
+  webElem <- remDr$findElement("name", "session[password]")
   webElem$sendKeysToElement(list(password))
   ## Click Log in button
-  webElem <- remDr$findElement("xpath","//button[@class='submit EdgeButton EdgeButton--primary EdgeButtom--medium']")
+  webElem <- remDr$findElement("css selector", ".css-901oao>span>span")
   webElem$clickElement()
   Sys.sleep(5)
 }
@@ -87,7 +94,7 @@ login <- function(username_or_email, password){
 split_date_range <- function(start_date, end_date){
   ### Split date range into 91-day periods
   ## Compute number of batches required
-  num_batches <<- ceiling(as.numeric(as.Date(end_date)-as.Date(start_date))/90)
+  num_batches <- ceiling(as.numeric(as.Date(end_date)-as.Date(start_date))/90)
   ## Compute start date and end date for each batch
   date_ranges <- lapply(1:num_batches,
                         function(i, start_date, end_date){
@@ -102,7 +109,12 @@ export_data <- function(){
   ### Download Twitter Analytics report for selected dates
   # Find Export Data button
   webElem <- remDr$findElement("xpath","//button[@class='btn btn-default ladda-button']")
+  webElem$clickElement()
+
+  # Click "by tweet" button
+  webElem <- remDr$findElement("xpath","//button[@data-type='by_tweet']")
   # Click button to download csv
   webElem$clickElement()
-  Sys.sleep(10)
+  webElem$click()
+  Sys.sleep(100)
 }
